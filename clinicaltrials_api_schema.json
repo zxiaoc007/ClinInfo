@@ -1,0 +1,188 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ClinicalTrials.gov API v2 Schema",
+  "description": "Schema for ClinicalTrials.gov API v2 query parameters and response structure",
+  "type": "object",
+  "properties": {
+    "endpoint": {
+      "type": "string",
+      "description": "API endpoint URL",
+      "default": "https://clinicaltrials.gov/api/v2/studies"
+    },
+    "queryParameters": {
+      "type": "object",
+      "description": "Available query parameters",
+      "properties": {
+        "query.cond": {
+          "type": "string",
+          "description": "Search by medical condition or disease"
+        },
+        "query.overallStatus": {
+          "type": "string",
+          "enum": [
+            "RECRUITING",
+            "NOT_YET_RECRUITING",
+            "ACTIVE_NOT_RECRUITING",
+            "COMPLETED",
+            "SUSPENDED",
+            "TERMINATED",
+            "WITHDRAWN",
+            "ENROLLING_BY_INVITATION",
+            "UNKNOWN"
+          ],
+          "description": "Filter by trial status"
+        },
+        "query.phase": {
+          "type": "string",
+          "enum": ["PHASE1", "PHASE2", "PHASE3", "PHASE4", "NA"],
+          "description": "Filter by clinical trial phase"
+        },
+        "query.studyType": {
+          "type": "string",
+          "enum": ["INTERVENTIONAL", "OBSERVATIONAL", "EXPANDED_ACCESS"],
+          "description": "Filter by study type"
+        },
+        "query.intr": {
+          "type": "string",
+          "description": "Search by intervention name or type"
+        },
+        "query.locn": {
+          "type": "string",
+          "description": "Filter by location (city, state, country)"
+        },
+        "query.spons": {
+          "type": "string",
+          "description": "Filter by sponsor name"
+        },
+        "query.ages": {
+          "type": "string",
+          "enum": ["CHILD", "ADULT", "OLDER_ADULT"],
+          "description": "Filter by age group"
+        },
+        "query.gndr": {
+          "type": "string",
+          "enum": ["ALL", "FEMALE", "MALE"],
+          "description": "Filter by gender eligibility"
+        },
+        "query.rcv_s": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Received start date (YYYY-MM-DD)"
+        },
+        "query.rcv_e": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Received end date (YYYY-MM-DD)"
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10,
+          "description": "Number of results per page"
+        },
+        "pageToken": {
+          "type": "string",
+          "description": "Token for pagination"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["json"],
+          "default": "json",
+          "description": "Response format"
+        },
+        "fields": {
+          "type": "string",
+          "description": "Comma-separated list of fields to include"
+        }
+      }
+    },
+    "responseSchema": {
+      "type": "object",
+      "description": "Response structure",
+      "properties": {
+        "studies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Study"
+          }
+        },
+        "nextPageToken": {
+          "type": "string",
+          "description": "Token for next page"
+        },
+        "totalCount": {
+          "type": "integer",
+          "description": "Total number of studies matching query"
+        }
+      },
+      "required": ["studies"]
+    }
+  },
+  "definitions": {
+    "Study": {
+      "type": "object",
+      "properties": {
+        "protocolSection": {
+          "type": "object",
+          "properties": {
+            "identificationModule": {
+              "type": "object",
+              "properties": {
+                "nctId": {"type": "string"},
+                "briefTitle": {"type": "string"},
+                "officialTitle": {"type": "string"}
+              },
+              "required": ["nctId", "briefTitle"]
+            },
+            "statusModule": {
+              "type": "object",
+              "properties": {
+                "overallStatus": {
+                  "type": "string",
+                  "enum": [
+                    "RECRUITING",
+                    "NOT_YET_RECRUITING",
+                    "ACTIVE_NOT_RECRUITING",
+                    "COMPLETED",
+                    "SUSPENDED",
+                    "TERMINATED",
+                    "WITHDRAWN",
+                    "ENROLLING_BY_INVITATION",
+                    "UNKNOWN"
+                  ]
+                },
+                "startDateStruct": {
+                  "type": "object",
+                  "properties": {
+                    "date": {"type": "string"},
+                    "type": {"type": "string", "enum": ["ACTUAL", "ESTIMATED"]}
+                  }
+                }
+              }
+            },
+            "conditionsModule": {
+              "type": "object",
+              "properties": {
+                "conditions": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                }
+              }
+            },
+            "eligibilityModule": {
+              "type": "object",
+              "properties": {
+                "eligibilityCriteria": {"type": "string"},
+                "sex": {"type": "string"},
+                "minimumAge": {"type": "string"},
+                "maximumAge": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
