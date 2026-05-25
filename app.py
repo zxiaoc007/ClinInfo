@@ -19,12 +19,12 @@ def chat():
         data = request.json
         user_message = data.get('message', '').strip()
         session_id = data.get('session_id', 'default')
-        mode = data.get('mode', 'trials')  # 'trials', 'drugs', or 'unified'
-        
+        mode = data.get('mode', 'orchestrated')
+
         if not user_message:
             return jsonify({'error': 'Message cannot be empty'}), 400
-        
-        # Get or create conversation history for this session (separate per mode)
+
+        # All sessions use a single history key — the orchestrator decides which agent runs
         session_key = f"{session_id}_{mode}"
         if session_key not in conversations:
             conversations[session_key] = []
@@ -49,7 +49,7 @@ def chat():
         return jsonify({
             'response': assistant_message.content,
             'session_id': session_id,
-            'mode': mode
+            'mode': mode,
         })
     
     except Exception as e:

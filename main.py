@@ -1,4 +1,5 @@
 import os, getpass
+import re
 import requests
 import json
 from typing import Optional
@@ -6,7 +7,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 
-from langgraph.graph import MessagesState
+from langgraph.graph import MessagesState, END
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
 from langgraph.graph import START, StateGraph
 from langchain_openai import ChatOpenAI
@@ -15,12 +16,20 @@ from langchain_core.tools import tool
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+_PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
+
+def _load_prompt(filename: str, **kwargs) -> str:
+    with open(os.path.join(_PROMPTS_DIR, filename)) as f:
+        text = f.read()
+    return text.format_map(kwargs) if kwargs else text
+
 # ClinicalTrials.gov API base URL
 CLINICAL_TRIALS_API_BASE = "https://clinicaltrials.gov/api/v2/studies"
 
 @tool
 def search_clinical_trials(
     condition: str,
+    sponsor: Optional[str] = None,
     status: Optional[str] = None,
     phase: Optional[str] = None,
     study_type: Optional[str] = None,
@@ -34,14 +43,16 @@ def search_clinical_trials(
 ) -> str:
     """
     Search for clinical trials on ClinicalTrials.gov API v2.
-    
+
     API Schema Reference:
     - Base URL: https://clinicaltrials.gov/api/v2/studies
     - All parameters are optional, but condition is typically required for meaningful results
-    
+
     Args:
         condition: The medical condition or disease to search for (e.g., "diabetes", "breast cancer")
-        status: Optional trial status filter. Valid values: RECRUITING, NOT_YET_RECRUITING, ACTIVE_NOT_RECRUITING, 
+        sponsor: Optional sponsor/pharmaceutical company name filter (e.g., "Roche", "Pfizer", "Novartis").
+                 Searches across both lead sponsors and collaborators (server-side filtering via query.spons).
+        status: Optional trial status filter. Valid values: RECRUITING, NOT_YET_RECRUITING, ACTIVE_NOT_RECRUITING,
                 COMPLETED, SUSPENDED, TERMINATED, WITHDRAWN, ENROLLING_BY_INVITATION, UNKNOWN
         phase: Optional phase filter. Valid values: PHASE1, PHASE2, PHASE3, PHASE4, NA
         study_type: Optional study type filter. Valid values: INTERVENTIONAL, OBSERVATIONAL, EXPANDED_ACCESS
@@ -52,28 +63,31 @@ def search_clinical_trials(
         start_date: Optional start date filter in ISO format YYYY-MM-DD (e.g., "2024-01-01")
         end_date: Optional end date filter in ISO format YYYY-MM-DD (e.g., "2024-12-31")
         max_results: Maximum number of results to return (default: 25, max: 100 due to API limit)
-    
+
     Returns:
         A formatted string with clinical trial information including NCT ID, title, status, and eligibility
-    
+
     Examples:
         - Search for recruiting phase 3 breast cancer trials: condition="breast cancer", status="RECRUITING", phase="PHASE3"
+        - Search for Roche phase 3 breast cancer trials: condition="breast cancer", sponsor="Roche", phase="PHASE3"
+        - Search for Pfizer diabetes trials: condition="diabetes", sponsor="Pfizer"
         - Search for diabetes trials in New York: condition="diabetes", location="New York"
         - Search for recent cancer trials: condition="cancer", start_date="2024-01-01"
     """
     try:
-        # Build query parameters - API v2 only supports basic condition search
-        # Other filters must be applied client-side
-        # Fetch 3x the requested amount to account for filtering, but API max is 100
+        # Build query parameters
+        # query.spons is supported server-side; phase/status/etc. are filtered client-side
+        # Fetch 3x the requested amount to account for client-side filtering, but API max is 100
         api_fetch_limit = min(max_results * 3, 100)
         query_params = {
             "query.cond": condition,
             "pageSize": api_fetch_limit,
             "format": "json"
         }
-        
-        # Note: API v2 doesn't support query.phase, query.overallStatus, etc.
-        # We'll filter client-side after fetching
+
+        # Sponsor is a native API filter (query.spons searches lead sponsors + collaborators)
+        if sponsor:
+            query_params["query.spons"] = sponsor
         
         # Make API request
         # Build the full URL to show the raw query
@@ -231,11 +245,14 @@ def search_clinical_trials(
                 study_phases = design_module.get("phases", [])
                 study_type = design_module.get("studyType", "N/A")
                 eligibility_criteria = eligibility.get("eligibilityCriteria", "N/A")
-                
+                sponsor_info = protocol.get("sponsorCollaboratorsModule", {})
+                lead_sponsor = sponsor_info.get("leadSponsor", {}).get("name", "N/A")
+                collaborators = [c.get("name", "") for c in sponsor_info.get("collaborators", [])]
+
                 # Truncate eligibility criteria if too long
                 if len(eligibility_criteria) > 200:
                     eligibility_criteria = eligibility_criteria[:200] + "..."
-                
+
                 results.append(f"{i}. {title}")
                 results.append(f"   NCT ID: {nct_id}")
                 if nct_id and nct_id != "N/A":
@@ -247,6 +264,10 @@ def search_clinical_trials(
                     results.append(f"   Phase: {phases_str}")
                 if study_type != "N/A":
                     results.append(f"   Study Type: {study_type}")
+                if lead_sponsor and lead_sponsor != "N/A":
+                    results.append(f"   Lead Sponsor: {lead_sponsor}")
+                if collaborators:
+                    results.append(f"   Collaborators: {', '.join(collaborators[:3])}")
                 if eligibility_criteria and eligibility_criteria != "N/A":
                     results.append(f"   Eligibility: {eligibility_criteria[:150]}...")
                 results.append("")
@@ -427,6 +448,253 @@ def search_drugs_fda(
         print(f"[DEBUG openFDA] Traceback: {traceback.format_exc()}")
         return error_msg
 
+@tool
+def get_clinical_trial_details(nct_id: str) -> str:
+    """
+    Fetch comprehensive details for a specific clinical trial by its NCT ID.
+
+    Use this tool whenever the user references a specific NCT number (e.g., NCT02586025)
+    or asks a question about a particular trial. Returns all structured data for the trial
+    so you can answer any follow-up question (enrollment, eligibility, outcomes, etc.).
+
+    Args:
+        nct_id: The ClinicalTrials.gov identifier (e.g., "NCT02586025"). Case-insensitive.
+
+    Returns:
+        A comprehensive structured text covering identification, status, design, enrollment,
+        eligibility, interventions, outcomes, locations, sponsor, and study results (if available).
+    """
+    try:
+        nct_id = nct_id.strip().upper()
+        url = f"{CLINICAL_TRIALS_API_BASE}/{nct_id}"
+        print(f"[DEBUG detail] Fetching: {url}")
+        response = requests.get(url, params={"format": "json"}, timeout=10)
+        if response.status_code == 404:
+            return f"No clinical trial found with ID {nct_id}. Please check the NCT number."
+        response.raise_for_status()
+        data = response.json()
+
+        p = data.get("protocolSection", {})
+        results_section = data.get("resultsSection", {})
+
+        # --- Identification ---
+        id_mod = p.get("identificationModule", {})
+        nct_id_out = id_mod.get("nctId", nct_id)
+        brief_title = id_mod.get("briefTitle", "N/A")
+        official_title = id_mod.get("officialTitle", "N/A")
+        org = id_mod.get("organization", {}).get("fullName", "N/A")
+
+        # --- Status ---
+        st_mod = p.get("statusModule", {})
+        overall_status = st_mod.get("overallStatus", "N/A")
+        start_date = st_mod.get("startDateStruct", {}).get("date", "N/A")
+        primary_completion = st_mod.get("primaryCompletionDateStruct", {}).get("date", "N/A")
+        completion_date = st_mod.get("completionDateStruct", {}).get("date", "N/A")
+        first_post = st_mod.get("studyFirstPostDateStruct", {}).get("date", "N/A")
+        last_update = st_mod.get("lastUpdatePostDateStruct", {}).get("date", "N/A")
+
+        # --- Sponsor ---
+        sp_mod = p.get("sponsorCollaboratorsModule", {})
+        lead_sponsor = sp_mod.get("leadSponsor", {}).get("name", "N/A")
+        collaborators = [c.get("name", "") for c in sp_mod.get("collaborators", [])]
+
+        # --- Description ---
+        desc_mod = p.get("descriptionModule", {})
+        brief_summary = desc_mod.get("briefSummary", "N/A")
+        detailed_desc = desc_mod.get("detailedDescription", "")
+
+        # --- Conditions ---
+        cond_mod = p.get("conditionsModule", {})
+        conditions = cond_mod.get("conditions", [])
+        keywords = cond_mod.get("keywords", [])
+
+        # --- Design ---
+        design_mod = p.get("designModule", {})
+        study_type = design_mod.get("studyType", "N/A")
+        phases = design_mod.get("phases", [])
+        enrollment_info = design_mod.get("enrollmentInfo", {})
+        enrollment_count = enrollment_info.get("count", "N/A")
+        enrollment_type = enrollment_info.get("type", "")
+        design_info = design_mod.get("designInfo", {})
+        allocation = design_info.get("allocation", "N/A")
+        intervention_model = design_info.get("interventionModel", "N/A")
+        primary_purpose = design_info.get("primaryPurpose", "N/A")
+        masking = design_info.get("maskingInfo", {}).get("masking", "N/A")
+
+        # --- Arms & Interventions ---
+        aim = p.get("armsInterventionsModule", {})
+        interventions = aim.get("interventions", [])
+        arm_groups = aim.get("armGroups", [])
+
+        # --- Outcomes ---
+        out_mod = p.get("outcomesModule", {})
+        primary_outcomes = out_mod.get("primaryOutcomes", [])
+        secondary_outcomes = out_mod.get("secondaryOutcomes", [])
+
+        # --- Eligibility ---
+        elig_mod = p.get("eligibilityModule", {})
+        eligibility_criteria = elig_mod.get("eligibilityCriteria", "N/A")
+        min_age = elig_mod.get("minimumAge", "N/A")
+        max_age = elig_mod.get("maximumAge", "Not specified")
+        sex = elig_mod.get("sex", "N/A")
+        healthy_volunteers = elig_mod.get("healthyVolunteers", False)
+        std_ages = elig_mod.get("stdAges", [])
+
+        # --- Locations ---
+        cl_mod = p.get("contactsLocationsModule", {})
+        locations = cl_mod.get("locations", [])
+        overall_officials = cl_mod.get("overallOfficials", [])
+
+        # --- Build output ---
+        out = []
+        out.append(f"=== Clinical Trial: {nct_id_out} ===")
+        out.append(f"Link: https://clinicaltrials.gov/study/{nct_id_out}")
+        out.append(f"Title: {brief_title}")
+        if official_title and official_title != brief_title:
+            out.append(f"Official Title: {official_title}")
+        out.append(f"Organization: {org}")
+        out.append("")
+
+        out.append("--- STATUS ---")
+        out.append(f"Overall Status: {overall_status}")
+        out.append(f"Start Date: {start_date}")
+        out.append(f"Primary Completion Date: {primary_completion}")
+        out.append(f"Study Completion Date: {completion_date}")
+        out.append(f"First Posted: {first_post}")
+        out.append(f"Last Updated: {last_update}")
+        out.append("")
+
+        out.append("--- SPONSOR ---")
+        out.append(f"Lead Sponsor: {lead_sponsor}")
+        if collaborators:
+            out.append(f"Collaborators: {', '.join(collaborators)}")
+        out.append("")
+
+        out.append("--- DESIGN ---")
+        out.append(f"Study Type: {study_type}")
+        out.append(f"Phase(s): {', '.join(phases) if phases else 'N/A'}")
+        out.append(f"Enrollment: {enrollment_count} participants ({enrollment_type})")
+        out.append(f"Allocation: {allocation}")
+        out.append(f"Intervention Model: {intervention_model}")
+        out.append(f"Primary Purpose: {primary_purpose}")
+        out.append(f"Masking: {masking}")
+        out.append("")
+
+        out.append("--- CONDITIONS ---")
+        out.append(f"Conditions: {', '.join(conditions) if conditions else 'N/A'}")
+        if keywords:
+            out.append(f"Keywords: {', '.join(keywords[:10])}")
+        out.append("")
+
+        out.append("--- INTERVENTIONS ---")
+        for intr in interventions:
+            name = intr.get("name", "N/A")
+            itype = intr.get("type", "N/A")
+            desc = intr.get("description", "")
+            out.append(f"  [{itype}] {name}")
+            if desc:
+                out.append(f"    Description: {desc[:200]}")
+        out.append("")
+
+        out.append("--- ARMS ---")
+        for arm in arm_groups:
+            label = arm.get("label", "N/A")
+            atype = arm.get("type", "N/A")
+            adesc = arm.get("description", "")
+            out.append(f"  {label} ({atype}): {adesc[:150]}")
+        out.append("")
+
+        out.append("--- PRIMARY OUTCOMES ---")
+        for po in primary_outcomes:
+            out.append(f"  Measure: {po.get('measure', 'N/A')}")
+            tf = po.get("timeFrame", "")
+            if tf:
+                out.append(f"  Time Frame: {tf}")
+        out.append("")
+
+        if secondary_outcomes:
+            out.append("--- SECONDARY OUTCOMES ---")
+            for so in secondary_outcomes[:5]:
+                out.append(f"  Measure: {so.get('measure', 'N/A')}")
+            if len(secondary_outcomes) > 5:
+                out.append(f"  ... and {len(secondary_outcomes) - 5} more")
+            out.append("")
+
+        out.append("--- ELIGIBILITY ---")
+        out.append(f"Age Range: {min_age} to {max_age}")
+        out.append(f"Sex: {sex}")
+        out.append(f"Age Groups: {', '.join(std_ages)}")
+        out.append(f"Accepts Healthy Volunteers: {'Yes' if healthy_volunteers else 'No'}")
+        out.append(f"Eligibility Criteria:\n{eligibility_criteria[:1500]}")
+        if len(eligibility_criteria) > 1500:
+            out.append("[...criteria truncated...]")
+        out.append("")
+
+        out.append("--- LOCATIONS ---")
+        out.append(f"Total Sites: {len(locations)}")
+        for loc in locations[:8]:
+            facility = loc.get("facility", "N/A")
+            city = loc.get("city", "")
+            country = loc.get("country", "")
+            status = loc.get("status", "")
+            out.append(f"  {facility} — {city}, {country} [{status}]")
+        if len(locations) > 8:
+            out.append(f"  ... and {len(locations) - 8} more sites")
+        out.append("")
+
+        if overall_officials:
+            out.append("--- OVERALL OFFICIALS ---")
+            for off in overall_officials[:3]:
+                out.append(f"  {off.get('name','N/A')} ({off.get('role','')}) — {off.get('affiliation','')}")
+            out.append("")
+
+        out.append("--- BRIEF SUMMARY ---")
+        out.append(brief_summary[:800])
+        if len(brief_summary) > 800:
+            out.append("[...truncated...]")
+        out.append("")
+
+        # --- Results (if available) ---
+        if results_section:
+            out.append("--- STUDY RESULTS ---")
+            # Participant flow
+            flow = results_section.get("participantFlowModule", {})
+            groups = flow.get("groups", [])
+            if groups:
+                out.append("Participant Flow Groups:")
+                for g in groups:
+                    out.append(f"  {g.get('title','')}: {g.get('description','')[:100]}")
+
+            # Outcome measures (first primary outcome result)
+            outcome_measures = results_section.get("outcomeMeasuresModule", {}).get("outcomeMeasures", [])
+            for om in outcome_measures[:2]:
+                out.append(f"Outcome: {om.get('title','N/A')} (Type: {om.get('type','N/A')})")
+                classes = om.get("classes", [])
+                for cls in classes[:3]:
+                    for cat in cls.get("categories", [])[:3]:
+                        for meas in cat.get("measurements", [])[:4]:
+                            val = meas.get("value", "N/A")
+                            grp = meas.get("groupId", "")
+                            out.append(f"  Group {grp}: {val}")
+
+            # Adverse events summary
+            ae_mod = results_section.get("adverseEventsModule", {})
+            if ae_mod:
+                freq_threshold = ae_mod.get("frequencyThreshold", "")
+                out.append(f"Adverse Events Frequency Threshold: {freq_threshold}")
+
+            out.append("")
+
+        return "\n".join(out)
+
+    except requests.exceptions.RequestException as e:
+        return f"Error fetching trial {nct_id}: {str(e)}"
+    except Exception as e:
+        import traceback
+        print(f"[DEBUG detail] Error: {traceback.format_exc()}")
+        return f"Error processing trial {nct_id}: {type(e).__name__}: {str(e)}"
+
+
 # Initialize LLM with tools
 llm = ChatOpenAI(
     model="gpt-4o",
@@ -437,7 +705,7 @@ llm = ChatOpenAI(
 # Bind tools to the LLM - create separate LLMs for different purposes
 llm_with_trials_tools = llm.bind_tools([search_clinical_trials])
 llm_with_drugs_tools = llm.bind_tools([search_drugs_fda])
-llm_with_all_tools = llm.bind_tools([search_clinical_trials, search_drugs_fda])
+llm_with_detail_tools = llm.bind_tools([get_clinical_trial_details])
 
 # Get current date for date calculations
 CURRENT_DATE = datetime.now().strftime("%Y-%m-%d")
@@ -451,98 +719,26 @@ THREE_MONTHS_AGO = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
 SIX_MONTHS_AGO = (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d")
 ONE_YEAR_AGO = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
 
-# System messages for different assistants
-sys_msg_trials = SystemMessage(content=f"""You are a helpful medical assistant with access to clinical trials information from ClinicalTrials.gov API v2.
+# Load system messages from prompt files
+_date_vars = dict(
+    CURRENT_DATE=CURRENT_DATE,
+    CURRENT_YEAR=CURRENT_YEAR,
+    CURRENT_MONTH=CURRENT_MONTH,
+    CURRENT_DAY=CURRENT_DAY,
+    ONE_MONTH_AGO=ONE_MONTH_AGO,
+    THREE_MONTHS_AGO=THREE_MONTHS_AGO,
+    SIX_MONTHS_AGO=SIX_MONTHS_AGO,
+    ONE_YEAR_AGO=ONE_YEAR_AGO,
+)
 
-CURRENT DATE INFORMATION:
-- Today's date: {CURRENT_DATE} (YYYY-MM-DD format)
-- Current year: {CURRENT_YEAR}
-- Current month: {CURRENT_MONTH}
-- Current day: {CURRENT_DAY}
+sys_msg_trials  = SystemMessage(content=_load_prompt("trials_agent.txt",  **_date_vars))
+sys_msg_drugs   = SystemMessage(content=_load_prompt("drugs_agent.txt"))
+sys_msg_detail  = SystemMessage(content=_load_prompt("detail_agent.txt"))
+sys_msg_chat    = SystemMessage(content=_load_prompt("chat_agent.txt"))
 
-IMPORTANT: When users ask about:
-- Clinical trials for any medical condition (e.g., "diabetes", "cancer", "Alzheimer's")
-- Medical research or studies
-- Treatments or experimental therapies
-- Finding trials for specific diseases
-- Phase-specific trials (Phase 1, 2, 3, or 4)
-- Recruiting or active trials
-- Trials by location, age group, or gender
-- Recent trials or trials from a specific time period
-
-You MUST use the search_clinical_trials tool to search for relevant information. Do not provide general information without searching first.
-
-API Schema Reference for constructing queries:
-- Condition (required for meaningful results): Use the medical condition or disease name
-- Status filters: RECRUITING, NOT_YET_RECRUITING, ACTIVE_NOT_RECRUITING, COMPLETED, SUSPENDED, TERMINATED, WITHDRAWN
-- Phase filters: PHASE1, PHASE2, PHASE3, PHASE4, NA
-- Study type: INTERVENTIONAL, OBSERVATIONAL, EXPANDED_ACCESS
-- Age groups: CHILD (0-17), ADULT (18-64), OLDER_ADULT (65+)
-- Gender: ALL, FEMALE, MALE
-- Dates: Use ISO format YYYY-MM-DD (e.g., "{CURRENT_DATE}")
-
-DATE CALCULATION RULES (CRITICAL - Use current date: {CURRENT_DATE}):
-- "recent" or "recently" → use start_date="{ONE_MONTH_AGO}" (last 30 days from today)
-- "last month" or "past month" → use start_date="{ONE_MONTH_AGO}" (30 days ago from {CURRENT_DATE})
-- "last 3 months" or "past 3 months" → use start_date="{THREE_MONTHS_AGO}" (90 days ago from {CURRENT_DATE})
-- "last 6 months" or "past 6 months" → use start_date="{SIX_MONTHS_AGO}" (180 days ago from {CURRENT_DATE})
-- "last year" or "past year" → use start_date="{ONE_YEAR_AGO}" (365 days ago from {CURRENT_DATE})
-- "this year" → use start_date="{CURRENT_YEAR}-01-01"
-- "this month" → use start_date="{CURRENT_YEAR}-{CURRENT_MONTH:02d}-01"
-- For specific dates mentioned by user, convert to YYYY-MM-DD format
-- Always use start_date for "since" or "from" queries
-- Always use end_date for "until" or "before" queries
-- For date ranges, use both start_date and end_date
-
-When users mention:
-- "phase 3" or "phase III" → use phase="PHASE3"
-- "recruiting" or "actively recruiting" → use status="RECRUITING"
-- "recent", "last month", "past month" → calculate start_date based on current date ({CURRENT_DATE})
-- Location names → use location parameter
-- Age groups → use age_group parameter (CHILD, ADULT, OLDER_ADULT)
-- Specific interventions → use intervention parameter
-
-Always provide accurate, helpful information and cite the NCT IDs when discussing specific trials.""")
-
-sys_msg_drugs = SystemMessage(content=f"""You are a helpful medical assistant with access to drug information from Drugs@FDA via the openFDA API.
-
-IMPORTANT: When users ask about:
-- Drug information, medications, or pharmaceuticals
-- Brand names or generic names of drugs
-- Drug labels, warnings, indications, or dosages
-- FDA-approved drugs
-- Drug interactions or side effects (from labels)
-- Finding information about specific medications
-
-You MUST use the search_drugs_fda tool to search for relevant information. Do not provide general information without searching first.
-
-Search Guidelines:
-- Use brand_name parameter for brand names (e.g., "Advil", "Tylenol")
-- Use generic_name parameter for generic drug names (e.g., "ibuprofen", "acetaminophen")
-- Use drug_name parameter for general searches that should check both brand and generic names
-- Use product_type to filter (e.g., "HUMAN PRESCRIPTION DRUG", "HUMAN OTC DRUG")
-- Use search_term for free-text searches across all fields
-
-Always provide accurate, helpful information about drugs and cite sources when available.""")
-
-sys_msg_unified = SystemMessage(content=f"""You are a helpful medical assistant with access to both clinical trials information from ClinicalTrials.gov and drug information from Drugs@FDA via openFDA.
-
-CURRENT DATE INFORMATION:
-- Today's date: {CURRENT_DATE} (YYYY-MM-DD format)
-- Current year: {CURRENT_YEAR}
-- Current month: {CURRENT_MONTH}
-- Current day: {CURRENT_DAY}
-
-You have access to two tools:
-1. search_clinical_trials - For finding clinical trials from ClinicalTrials.gov
-2. search_drugs_fda - For finding drug information from Drugs@FDA
-
-Use the appropriate tool based on what the user is asking about. If the user asks about both, you can use both tools.
-
-For clinical trials queries, use search_clinical_trials.
-For drug information queries, use search_drugs_fda.
-
-Always provide accurate, helpful information and cite sources when available.""")
+# State shared across the orchestrated graph
+class OrchestratorState(MessagesState):
+    next_agent: str  # "trials" | "drugs" | "detail" | "chat"
 
 # Keep original sys_msg for backward compatibility
 sys_msg = sys_msg_trials
@@ -560,11 +756,45 @@ def assistant_drugs(state: MessagesState):
     
     return _process_tool_calls(response, messages, llm)
 
-def assistant_unified(state: MessagesState):
-    messages = [sys_msg_unified] + state["messages"]
-    response = llm_with_all_tools.invoke(messages)
-    
+def assistant_detail(state: MessagesState):
+    messages = [sys_msg_detail] + state["messages"]
+    response = llm_with_detail_tools.invoke(messages)
+
     return _process_tool_calls(response, messages, llm)
+
+def chat_agent(state: OrchestratorState):
+    messages = [sys_msg_chat] + state["messages"]
+    response = llm.invoke(messages)
+    return {"messages": [response]}
+
+_NCT_RE = re.compile(r'\bNCT\d{6,8}\b', re.IGNORECASE)
+
+_ORCHESTRATOR_PROMPT = _load_prompt("orchestrator.txt")
+
+def orchestrator(state: OrchestratorState):
+    messages = state["messages"]
+    last_msg = messages[-1].content if messages else ""
+
+    # Hard-coded fast path — NCT IDs always go to detail without an LLM call
+    if _NCT_RE.search(last_msg):
+        print("[ORCHESTRATOR] → detail (NCT ID detected)")
+        return {"next_agent": "detail"}
+
+    # Ask the LLM to classify intent using full conversation history as context
+    classification_messages = [
+        SystemMessage(content=_ORCHESTRATOR_PROMPT),
+        *messages,
+    ]
+    response = llm.invoke(classification_messages)
+    raw = response.content.strip().lower()
+
+    match = re.search(r'\b(trials|drugs|detail|chat)\b', raw)
+    intent = match.group(1) if match else "trials"
+    print(f"[ORCHESTRATOR] → {intent} (raw: '{raw}')")
+    return {"next_agent": intent}
+
+def route_after_orchestrator(state: OrchestratorState) -> str:
+    return state.get("next_agent", "trials")
 
 def _process_tool_calls(response, messages, llm):
     
@@ -604,6 +834,19 @@ def _process_tool_calls(response, messages, llm):
                 print(f"[DEBUG] Executing search_clinical_trials with args: {tool_args}, tool_call_id: {tool_call_id}")
                 try:
                     result = search_clinical_trials.invoke(tool_args)
+                    tool_messages.append(ToolMessage(
+                        content=result,
+                        tool_call_id=tool_call_id
+                    ))
+                except Exception as e:
+                    tool_messages.append(ToolMessage(
+                        content=f"Error executing tool: {str(e)}",
+                        tool_call_id=tool_call_id
+                    ))
+            elif tool_name == "get_clinical_trial_details":
+                print(f"[DEBUG] Executing get_clinical_trial_details with args: {tool_args}, tool_call_id: {tool_call_id}")
+                try:
+                    result = get_clinical_trial_details.invoke(tool_args)
                     tool_messages.append(ToolMessage(
                         content=result,
                         tool_call_id=tool_call_id
@@ -682,24 +925,50 @@ builder_drugs.add_node("assistant", assistant_drugs)
 builder_drugs.add_edge(START, "assistant")
 react_graph_drugs = builder_drugs.compile()
 
-builder_unified = StateGraph(MessagesState)
-builder_unified.add_node("assistant", assistant_unified)
-builder_unified.add_edge(START, "assistant")
-react_graph_unified = builder_unified.compile()
+builder_detail = StateGraph(MessagesState)
+builder_detail.add_node("assistant", assistant_detail)
+builder_detail.add_edge(START, "assistant")
+react_graph_detail = builder_detail.compile()
+
+# Orchestrated graph — single entry point, routes internally
+builder_orch = StateGraph(OrchestratorState)
+builder_orch.add_node("orchestrator", orchestrator)
+builder_orch.add_node("trials_agent", assistant_trials)
+builder_orch.add_node("drugs_agent", assistant_drugs)
+builder_orch.add_node("detail_agent", assistant_detail)
+builder_orch.add_node("chat_agent", chat_agent)
+
+builder_orch.add_edge(START, "orchestrator")
+builder_orch.add_conditional_edges(
+    "orchestrator",
+    route_after_orchestrator,
+    {
+        "trials": "trials_agent",
+        "drugs":  "drugs_agent",
+        "detail": "detail_agent",
+        "chat":   "chat_agent",
+    },
+)
+builder_orch.add_edge("trials_agent", END)
+builder_orch.add_edge("drugs_agent",  END)
+builder_orch.add_edge("detail_agent", END)
+builder_orch.add_edge("chat_agent",   END)
+react_graph_orchestrated = builder_orch.compile()
 
 # Default graph for backward compatibility
-react_graph = react_graph_trials
+react_graph = react_graph_orchestrated
 
-# Function to get the right graph based on mode
-def get_graph(mode="trials"):
-    if mode == "trials":
+def get_graph(mode="orchestrated"):
+    if mode == "orchestrated":
+        return react_graph_orchestrated
+    elif mode == "trials":
         return react_graph_trials
     elif mode == "drugs":
         return react_graph_drugs
-    elif mode == "unified":
-        return react_graph_unified
+    elif mode == "detail":
+        return react_graph_detail
     else:
-        return react_graph_trials
+        return react_graph_orchestrated
 
 # Interactive chat loop
 def chat():

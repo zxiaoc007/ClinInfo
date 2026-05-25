@@ -1,287 +1,259 @@
-// Use relative URL for API - works with same-origin Flask server
-// If running on a different port, update this to match your server
 const API_URL = '/api';
 let sessionId = 'session_' + Date.now();
 let currentMode = 'trials'; // 'trials' or 'drugs'
 
-const chatContainer = document.getElementById('chatContainer');
-const messageInput = document.getElementById('messageInput');
-const sendBtn = document.getElementById('sendBtn');
-const clearBtn = document.getElementById('clearBtn');
-const charCount = document.getElementById('charCount');
-const tabTrials = document.getElementById('tabTrials');
-const tabDrugs = document.getElementById('tabDrugs');
-const welcomeMessageTrials = document.getElementById('welcomeMessageTrials');
-const welcomeMessageDrugs = document.getElementById('welcomeMessageDrugs');
+const chatContainer          = document.getElementById('chatContainer');
+const messageInput           = document.getElementById('messageInput');
+const sendBtn                = document.getElementById('sendBtn');
+const clearBtn               = document.getElementById('clearBtn');
+const charCount              = document.getElementById('charCount');
+const tabTrials              = document.getElementById('tabTrials');
+const tabDrugs               = document.getElementById('tabDrugs');
+const welcomeMessageTrials   = document.getElementById('welcomeMessageTrials');
+const welcomeMessageDrugs    = document.getElementById('welcomeMessageDrugs');
 
-// Tab switching
+// ── Tab switching ────────────────────────────────────────────
 tabTrials.addEventListener('click', () => switchMode('trials'));
-tabDrugs.addEventListener('click', () => switchMode('drugs'));
+tabDrugs.addEventListener('click',  () => switchMode('drugs'));
 
 function switchMode(mode) {
     if (mode === currentMode) return;
-    
     currentMode = mode;
-    
-    // Update tab appearance
+
     if (mode === 'trials') {
         tabTrials.classList.add('active');
         tabDrugs.classList.remove('active');
         messageInput.placeholder = 'Ask about clinical trials...';
         welcomeMessageTrials.style.display = 'block';
-        welcomeMessageDrugs.style.display = 'none';
+        welcomeMessageDrugs.style.display  = 'none';
     } else {
         tabTrials.classList.remove('active');
         tabDrugs.classList.add('active');
         messageInput.placeholder = 'Ask about drugs and medications...';
         welcomeMessageTrials.style.display = 'none';
-        welcomeMessageDrugs.style.display = 'block';
+        welcomeMessageDrugs.style.display  = 'block';
     }
-    
-    // Clear chat when switching modes (optional - you might want to keep history)
-    // clearChatContainer();
 }
 
-// Auto-resize textarea
+// ── Textarea auto-resize & char count ───────────────────────
 messageInput.addEventListener('input', () => {
     messageInput.style.height = 'auto';
     messageInput.style.height = messageInput.scrollHeight + 'px';
-    
-    // Update character count
-    const count = messageInput.value.length;
-    charCount.textContent = count;
-    
-    // Enable/disable send button
-    sendBtn.disabled = count === 0 || count > 1000;
+    const n = messageInput.value.length;
+    charCount.textContent = n;
+    sendBtn.disabled = n === 0 || n > 1000;
 });
 
-// Send message on Enter (Shift+Enter for new line)
-messageInput.addEventListener('keydown', (e) => {
+// ── Keyboard shortcuts ───────────────────────────────────────
+messageInput.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        if (!sendBtn.disabled) {
-            sendMessage();
-        }
+        if (!sendBtn.disabled) sendMessage();
     }
 });
 
-// Send button click
 sendBtn.addEventListener('click', sendMessage);
-
-// Clear conversation
 clearBtn.addEventListener('click', clearConversation);
 
-// Helper function to attach example button listeners
+// ── Example buttons ──────────────────────────────────────────
 function attachExampleButtonListeners() {
     document.querySelectorAll('.example-btn').forEach(btn => {
-        // Remove existing listeners by cloning
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
-        
-        // Add new listener
-        newBtn.addEventListener('click', () => {
-            const query = newBtn.getAttribute('data-query');
-            messageInput.value = query;
+        const fresh = btn.cloneNode(true);
+        btn.replaceWith(fresh);
+        fresh.addEventListener('click', () => {
+            messageInput.value = fresh.dataset.query;
             messageInput.dispatchEvent(new Event('input'));
             sendMessage();
         });
     });
 }
-
-// Attach example button listeners on page load
 attachExampleButtonListeners();
 
+// ── Send message ─────────────────────────────────────────────
 async function sendMessage() {
     const message = messageInput.value.trim();
     if (!message || message.length > 1000) return;
 
-    // Add user message to chat
     addMessage('user', message);
-    
-    // Clear input
+
     messageInput.value = '';
     messageInput.style.height = 'auto';
     charCount.textContent = '0';
     sendBtn.disabled = true;
-    
-        // Remove welcome messages if present
-        const welcomeMsgs = document.querySelectorAll('.welcome-message');
-        welcomeMsgs.forEach(msg => {
-            if (msg.style.display !== 'none') {
-                msg.style.display = 'none';
-            }
-        });
 
-    // Show loading indicator
+    document.querySelectorAll('.welcome-message').forEach(m => m.style.display = 'none');
+
     const loadingId = showLoading();
 
     try {
-        const response = await fetch(`${API_URL}/chat`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                message: message,
-                session_id: sessionId,
-                mode: currentMode
-            })
+        const res  = await fetch(`${API_URL}/chat`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ message, session_id: sessionId, mode: currentMode }),
         });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.error || 'Failed to get response');
-        }
-
-        // Remove loading indicator
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Server error');
         removeLoading(loadingId);
-
-        // Add assistant response
         addMessage('assistant', data.response);
-
-    } catch (error) {
-        console.error('Error:', error);
+    } catch (err) {
+        console.error(err);
         removeLoading(loadingId);
-        addMessage('assistant', `Sorry, I encountered an error: ${error.message}. Please try again.`, true);
+        addMessage('assistant', `Sorry, I encountered an error: ${err.message}. Please try again.`, true);
     }
 }
 
+// ── Add message bubble ───────────────────────────────────────
 function addMessage(role, content, isError = false) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role}`;
-    
-    if (isError) {
-        messageDiv.innerHTML = `
-            <div class="message-content error-message">
-                ${escapeHtml(content)}
-            </div>
-        `;
-    } else {
-        // Format the message content
-        const formattedContent = formatMessage(content);
-        
-        messageDiv.innerHTML = `
-            <div class="message-content">
-                ${formattedContent}
-            </div>
-        `;
-    }
-    
-    chatContainer.appendChild(messageDiv);
+    const wrap = document.createElement('div');
+    wrap.className = `message ${role}`;
+
+    const inner = document.createElement('div');
+    inner.className = 'message-content' + (isError ? ' error-message' : '');
+    inner.innerHTML  = isError ? escapeHtml(content) : formatMessage(content);
+
+    wrap.appendChild(inner);
+    chatContainer.appendChild(wrap);
     scrollToBottom();
 }
 
-function formatMessage(content) {
-    // Escape HTML first
-    let formatted = escapeHtml(content);
-    
-    // Format ClinicalTrials.gov links (Link: https://clinicaltrials.gov/study/NCT...)
-    formatted = formatted.replace(/Link:\s*(https?:\/\/clinicaltrials\.gov\/study\/[^\s]+)/g, 
-        'Link: <a href="$1" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;">$1</a>');
-    
-    // Format NCT IDs (e.g., NCT12345678) - make them links too
-    formatted = formatted.replace(/\b(NCT\d+)\b/g, 
-        '<a href="https://clinicaltrials.gov/study/$1" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;"><code>$1</code></a>');
-    
-    // Format numbered lists
-    formatted = formatted.replace(/^(\d+\.\s.+)$/gm, '<strong>$1</strong>');
-    
-    // Format section headers (lines that end with :)
-    formatted = formatted.replace(/^(.+):$/gm, '<strong>$1:</strong>');
-    
-    // Preserve line breaks
-    formatted = formatted.replace(/\n/g, '<br>');
-    
-    return formatted;
+// ── Markdown-aware formatter ─────────────────────────────────
+function formatMessage(raw) {
+    const lines  = raw.split('\n');
+    const output = [];
+    let inList   = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+
+        if (/^## (.+)/.test(line)) {
+            if (inList) { output.push('</ul>'); inList = false; }
+            output.push(`<h2>${inlineFormat(line.replace(/^## /, ''))}</h2>`);
+            continue;
+        }
+        if (/^### (.+)/.test(line)) {
+            if (inList) { output.push('</ul>'); inList = false; }
+            output.push(`<h3>${inlineFormat(line.replace(/^### /, ''))}</h3>`);
+            continue;
+        }
+        if (/^---+$/.test(line.trim())) {
+            if (inList) { output.push('</ul>'); inList = false; }
+            output.push('<hr>');
+            continue;
+        }
+        if (/^[-*•]\s+/.test(line)) {
+            if (!inList) { output.push('<ul>'); inList = true; }
+            output.push(`<li>${inlineFormat(line.replace(/^[-*•]\s+/, ''))}</li>`);
+            continue;
+        }
+        if (/^\d+\.\s+/.test(line)) {
+            if (inList) { output.push('</ul>'); inList = false; }
+            output.push(`<p><strong>${inlineFormat(line)}</strong></p>`);
+            continue;
+        }
+        if (line.trim() === '') {
+            if (inList) { output.push('</ul>'); inList = false; }
+            output.push('<p></p>');
+            continue;
+        }
+        if (inList) { output.push('</ul>'); inList = false; }
+        output.push(`<p>${inlineFormat(line)}</p>`);
+    }
+
+    if (inList) output.push('</ul>');
+    return output.join('');
+}
+
+function inlineFormat(text) {
+    text = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/\*(.+?)\*/g,     '<em>$1</em>');
+    text = text.replace(/`([^`]+)`/g,     '<code>$1</code>');
+
+    // ClinicalTrials.gov "Link: URL" pattern
+    text = text.replace(
+        /Link:\s*(https?:\/\/clinicaltrials\.gov\/study\/([^\s]+))/g,
+        'Link: <a class="nct-link" href="$1" target="_blank" rel="noopener">$2 ↗</a>'
+    );
+
+    // Bare NCT IDs → linked pills
+    text = text.replace(
+        /\b(NCT\d{6,8})\b(?![^<]*<\/a>)/g,
+        '<a class="nct-link" href="https://clinicaltrials.gov/study/$1" target="_blank" rel="noopener">$1 ↗</a>'
+    );
+
+    // Other bare URLs
+    text = text.replace(
+        /(?<!href=["'])(https?:\/\/[^\s<]+)/g,
+        '<a href="$1" target="_blank" rel="noopener">$1</a>'
+    );
+
+    return text;
 }
 
 function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    const d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
 }
 
+// ── Loading indicator ────────────────────────────────────────
 function showLoading() {
-    const loadingId = 'loading-' + Date.now();
-    const loadingDiv = document.createElement('div');
-    loadingDiv.id = loadingId;
-    loadingDiv.className = 'message assistant';
-    loadingDiv.innerHTML = `
-        <div class="message-content">
-            <div class="loading">
-                <div class="loading-dot"></div>
-                <div class="loading-dot"></div>
-                <div class="loading-dot"></div>
-            </div>
+    const id  = 'loading-' + Date.now();
+    const div = document.createElement('div');
+    div.id        = id;
+    div.className = 'message assistant';
+    div.innerHTML = `<div class="message-content">
+        <div class="loading">
+            <div class="loading-dot"></div>
+            <div class="loading-dot"></div>
+            <div class="loading-dot"></div>
         </div>
-    `;
-    chatContainer.appendChild(loadingDiv);
+    </div>`;
+    chatContainer.appendChild(div);
     scrollToBottom();
-    return loadingId;
+    return id;
 }
 
-function removeLoading(loadingId) {
-    const loadingElement = document.getElementById(loadingId);
-    if (loadingElement) {
-        loadingElement.remove();
-    }
+function removeLoading(id) {
+    document.getElementById(id)?.remove();
 }
 
 function scrollToBottom() {
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
+// ── Clear conversation ───────────────────────────────────────
 async function clearConversation() {
-    if (!confirm('Are you sure you want to clear the conversation?')) {
-        return;
-    }
+    if (!confirm('Are you sure you want to clear the conversation?')) return;
 
     try {
         await fetch(`${API_URL}/clear`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                session_id: sessionId,
-                mode: currentMode
-            })
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ session_id: sessionId, mode: currentMode }),
         });
+    } catch (e) { /* best-effort */ }
 
-        // Clear chat container (but keep welcome messages)
-        const messages = chatContainer.querySelectorAll('.message');
-        messages.forEach(msg => msg.remove());
-        
-        // Show appropriate welcome message
-        if (currentMode === 'trials') {
-            welcomeMessageTrials.style.display = 'block';
-            welcomeMessageDrugs.style.display = 'none';
-        } else {
-            welcomeMessageTrials.style.display = 'none';
-            welcomeMessageDrugs.style.display = 'block';
-        }
+    chatContainer.querySelectorAll('.message').forEach(m => m.remove());
 
-        // Re-attach event listeners to example buttons
-        attachExampleButtonListeners();
-
-        // Generate new session ID
-        sessionId = 'session_' + Date.now();
-
-    } catch (error) {
-        console.error('Error clearing conversation:', error);
-        alert('Failed to clear conversation. Please try again.');
+    if (currentMode === 'trials') {
+        welcomeMessageTrials.style.display = 'block';
+        welcomeMessageDrugs.style.display  = 'none';
+    } else {
+        welcomeMessageTrials.style.display = 'none';
+        welcomeMessageDrugs.style.display  = 'block';
     }
+
+    attachExampleButtonListeners();
+    sessionId = 'session_' + Date.now();
 }
 
-// Check API health on load
+// ── Health check ─────────────────────────────────────────────
 fetch(`${API_URL}/health`)
-    .then(response => response.json())
-    .then(data => {
-        console.log('API is healthy:', data);
-    })
-    .catch(error => {
-        console.error('API health check failed:', error);
-        addMessage('assistant', 'Warning: Unable to connect to the API. Please make sure the server is running.', true);
-    });
-
+    .then(r => r.json())
+    .then(() => console.log('API is healthy'))
+    .catch(() => addMessage('assistant', 'Warning: Unable to connect to the API. Please make sure the server is running.', true));
