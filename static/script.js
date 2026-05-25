@@ -1,39 +1,14 @@
-const API_URL = '/api';
-let sessionId = 'session_' + Date.now();
-let currentMode = 'trials'; // 'trials' or 'drugs'
+const API_URL   = '/api';
+let   sessionId = 'session_' + Date.now();
+const currentMode = 'orchestrated';
 
-const chatContainer          = document.getElementById('chatContainer');
-const messageInput           = document.getElementById('messageInput');
-const sendBtn                = document.getElementById('sendBtn');
-const clearBtn               = document.getElementById('clearBtn');
-const charCount              = document.getElementById('charCount');
-const tabTrials              = document.getElementById('tabTrials');
-const tabDrugs               = document.getElementById('tabDrugs');
-const welcomeMessageTrials   = document.getElementById('welcomeMessageTrials');
-const welcomeMessageDrugs    = document.getElementById('welcomeMessageDrugs');
-
-// ── Tab switching ────────────────────────────────────────────
-tabTrials.addEventListener('click', () => switchMode('trials'));
-tabDrugs.addEventListener('click',  () => switchMode('drugs'));
-
-function switchMode(mode) {
-    if (mode === currentMode) return;
-    currentMode = mode;
-
-    if (mode === 'trials') {
-        tabTrials.classList.add('active');
-        tabDrugs.classList.remove('active');
-        messageInput.placeholder = 'Ask about clinical trials...';
-        welcomeMessageTrials.style.display = 'block';
-        welcomeMessageDrugs.style.display  = 'none';
-    } else {
-        tabTrials.classList.remove('active');
-        tabDrugs.classList.add('active');
-        messageInput.placeholder = 'Ask about drugs and medications...';
-        welcomeMessageTrials.style.display = 'none';
-        welcomeMessageDrugs.style.display  = 'block';
-    }
-}
+const chatContainer = document.getElementById('chatContainer');
+const messageInput  = document.getElementById('messageInput');
+const sendBtn       = document.getElementById('sendBtn');
+const clearBtn      = document.getElementById('clearBtn');
+const charCount     = document.getElementById('charCount');
+const welcomeMsg    = document.getElementById('welcomeMessage');
+const logo          = document.querySelector('.logo');
 
 // ── Textarea auto-resize & char count ───────────────────────
 messageInput.addEventListener('input', () => {
@@ -54,6 +29,7 @@ messageInput.addEventListener('keydown', e => {
 
 sendBtn.addEventListener('click', sendMessage);
 clearBtn.addEventListener('click', clearConversation);
+logo.addEventListener('click', goHome);
 
 // ── Example buttons ──────────────────────────────────────────
 function attachExampleButtonListeners() {
@@ -81,7 +57,7 @@ async function sendMessage() {
     charCount.textContent = '0';
     sendBtn.disabled = true;
 
-    document.querySelectorAll('.welcome-message').forEach(m => m.style.display = 'none');
+    if (welcomeMsg) welcomeMsg.style.display = 'none';
 
     const loadingId = showLoading();
 
@@ -173,19 +149,14 @@ function inlineFormat(text) {
     text = text.replace(/\*(.+?)\*/g,     '<em>$1</em>');
     text = text.replace(/`([^`]+)`/g,     '<code>$1</code>');
 
-    // ClinicalTrials.gov "Link: URL" pattern
     text = text.replace(
         /Link:\s*(https?:\/\/clinicaltrials\.gov\/study\/([^\s]+))/g,
         'Link: <a class="nct-link" href="$1" target="_blank" rel="noopener">$2 ↗</a>'
     );
-
-    // Bare NCT IDs → linked pills
     text = text.replace(
         /\b(NCT\d{6,8})\b(?![^<]*<\/a>)/g,
         '<a class="nct-link" href="https://clinicaltrials.gov/study/$1" target="_blank" rel="noopener">$1 ↗</a>'
     );
-
-    // Other bare URLs
     text = text.replace(
         /(?<!href=["'])(https?:\/\/[^\s<]+)/g,
         '<a href="$1" target="_blank" rel="noopener">$1</a>'
@@ -226,6 +197,23 @@ function scrollToBottom() {
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
+// ── Go home (logo click) ─────────────────────────────────────
+async function goHome() {
+    if (!chatContainer.querySelector('.message')) return; // already on home
+    try {
+        await fetch(`${API_URL}/clear`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ session_id: sessionId, mode: currentMode }),
+        });
+    } catch (e) { /* best-effort */ }
+
+    chatContainer.querySelectorAll('.message').forEach(m => m.remove());
+    if (welcomeMsg) welcomeMsg.style.display = 'block';
+    attachExampleButtonListeners();
+    sessionId = 'session_' + Date.now();
+}
+
 // ── Clear conversation ───────────────────────────────────────
 async function clearConversation() {
     if (!confirm('Are you sure you want to clear the conversation?')) return;
@@ -239,15 +227,7 @@ async function clearConversation() {
     } catch (e) { /* best-effort */ }
 
     chatContainer.querySelectorAll('.message').forEach(m => m.remove());
-
-    if (currentMode === 'trials') {
-        welcomeMessageTrials.style.display = 'block';
-        welcomeMessageDrugs.style.display  = 'none';
-    } else {
-        welcomeMessageTrials.style.display = 'none';
-        welcomeMessageDrugs.style.display  = 'block';
-    }
-
+    if (welcomeMsg) welcomeMsg.style.display = 'block';
     attachExampleButtonListeners();
     sessionId = 'session_' + Date.now();
 }

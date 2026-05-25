@@ -17,7 +17,7 @@
                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
                     </svg>
-                    <h1>Medical Assistant</h1>
+                    <h1>ClinInfo</h1>
                 </div>
                 <button class="clear-btn" id="clearBtn" title="Clear conversation">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -27,65 +27,65 @@
                     Clear
                 </button>
             </div>
-            <div class="tabs-container">
-                <button class="tab-btn active" id="tabTrials">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M9 11l3 3L22 4"/>
-                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-                    </svg>
-                    Clinical Trials
-                </button>
-                <button class="tab-btn" id="tabDrugs">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M10.5 20H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H20a2 2 0 0 1 2 2v3"/>
-                        <circle cx="18" cy="18" r="4"/>
-                        <path d="M18 16v4M16 18h4"/>
-                    </svg>
-                    Drugs@FDA
-                </button>
-            </div>
         </header>
 
         <main>
             <div class="chat-container" id="chatContainer">
 
-                <div class="welcome-message" id="welcomeMessageTrials">
-                    <div class="welcome-icon">🔬</div>
-                    <h2>Clinical Trials Assistant</h2>
-                    <p>Search and explore clinical trials from ClinicalTrials.gov. Ask about specific studies, phases, conditions, or sponsors.</p>
-                    <div class="example-queries">
-                        <button class="example-btn" data-query="Find phase 3 breast cancer studies from Roche">
-                            Find phase 3 breast cancer studies from Roche
-                        </button>
-                        <button class="example-btn" data-query="Are there recruiting diabetes trials in New York?">
-                            Are there recruiting diabetes trials in New York?
-                        </button>
-                        <button class="example-btn" data-query="Find Alzheimer's trials from the last 6 months">
-                            Find Alzheimer's trials from the last 6 months
-                        </button>
-                        <button class="example-btn" data-query="What is the enrollment number for NCT02586025?">
-                            What is the enrollment number for NCT02586025?
-                        </button>
-                    </div>
-                </div>
+                <div class="welcome-message" id="welcomeMessage">
+                    <div class="welcome-icon">🏥</div>
+                    <h2>Medical Research Assistant</h2>
+                    <p>Ask about clinical trials from ClinicalTrials.gov or FDA drug information.</p>
 
-                <div class="welcome-message" id="welcomeMessageDrugs" style="display: none;">
-                    <div class="welcome-icon">💊</div>
-                    <h2>Drugs@FDA Assistant</h2>
-                    <p>Search FDA drug information including labels, warnings, dosage instructions, and approval details.</p>
-                    <div class="example-queries">
-                        <button class="example-btn" data-query="What are the warnings for acetaminophen?">
-                            What are the warnings for acetaminophen?
-                        </button>
-                        <button class="example-btn" data-query="Find FDA label information for Advil">
-                            Find FDA label information for Advil
-                        </button>
-                        <button class="example-btn" data-query="What is trastuzumab used for?">
-                            What is trastuzumab used for?
-                        </button>
-                        <button class="example-btn" data-query="Search for prescription diabetes medications">
-                            Search for prescription diabetes medications
-                        </button>
+                    <div class="example-columns">
+                        <div class="example-section">
+                            <div class="example-section-label">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M9 11l3 3L22 4"/>
+                                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                                </svg>
+                                Clinical Trials
+                            </div>
+                            <div class="example-queries">
+                                <button class="example-btn" data-query="Find phase 3 breast cancer studies from Roche">
+                                    Find phase 3 breast cancer studies from Roche
+                                </button>
+                                <button class="example-btn" data-query="Are there recruiting diabetes trials in New York?">
+                                    Are there recruiting diabetes trials in New York?
+                                </button>
+                                <button class="example-btn" data-query="Find Alzheimer's trials from the last 6 months">
+                                    Find Alzheimer's trials from the last 6 months
+                                </button>
+                                <button class="example-btn" data-query="What is the enrollment number for NCT02586025?">
+                                    What is the enrollment number for NCT02586025?
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="example-section">
+                            <div class="example-section-label">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M10.5 20H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H20a2 2 0 0 1 2 2v3"/>
+                                    <circle cx="18" cy="18" r="4"/>
+                                    <path d="M18 16v4M16 18h4"/>
+                                </svg>
+                                Drugs@FDA
+                            </div>
+                            <div class="example-queries">
+                                <button class="example-btn" data-query="What are the warnings for acetaminophen?">
+                                    What are the warnings for acetaminophen?
+                                </button>
+                                <button class="example-btn" data-query="Find FDA label information for Advil">
+                                    Find FDA label information for Advil
+                                </button>
+                                <button class="example-btn" data-query="What is trastuzumab used for?">
+                                    What is trastuzumab used for?
+                                </button>
+                                <button class="example-btn" data-query="Search for prescription diabetes medications">
+                                    Search for prescription diabetes medications
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -95,8 +95,8 @@
                 <div class="input-wrapper">
                     <textarea
                         id="messageInput"
-                        placeholder="Ask about clinical trials..."
-                        rows="1"
+                        placeholder="Ask about clinical trials, a specific NCT study, or drug information…"
+                        rows="2"
                         maxlength="1000"
                     ></textarea>
                     <button class="send-btn" id="sendBtn" disabled title="Send message">
