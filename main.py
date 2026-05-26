@@ -188,13 +188,25 @@ def search_clinical_trials(
             "format": "json"
         }
 
+        # Phase → aggFilters number mapping (filter.phase is not a valid v2 parameter)
+        _PHASE_MAP = {
+            "EARLY_PHASE1": "0",
+            "PHASE1": "1",
+            "PHASE2": "2",
+            "PHASE3": "3",
+            "PHASE4": "4",
+            "NA": "na",
+        }
+
         # --- Native server-side API filters ---
         if sponsor:
             query_params["query.spons"] = sponsor          # lead sponsors + collaborators
         if status:
             query_params["filter.overallStatus"] = status.upper()
         if phase:
-            query_params["filter.phase"] = phase.upper()
+            phase_num = _PHASE_MAP.get(phase.upper())
+            if phase_num:
+                query_params["aggFilters"] = f"phase:{phase_num}"
         if location:
             query_params["query.locn"] = location          # address, city, state, zip, country
         if intervention:
