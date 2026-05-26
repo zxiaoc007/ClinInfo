@@ -4,7 +4,13 @@ Read the FULL conversation history and classify the user's LATEST message into e
 Categories:
 - trials  : User wants to search for clinical trials by condition, disease, sponsor, phase, location, or status.
             Also route here for: summarizing or comparing results from a previous trial search.
-- drugs   : User wants FDA drug information — brand/generic name, drug label, warnings, dosage, side effects, approval status.
+- drugs   : User wants FDA drug information OR FDA news/announcements OR Complete Response Letters. Route here for:
+            * Drug label info: brand/generic name, warnings, dosage, side effects, approval status
+            * FDA press announcements, FDA news, recent FDA approvals, FDA alerts, FDA press releases
+            * Questions about what the FDA has announced, approved, or warned about recently
+            * Any question mentioning "FDA announcement", "FDA press", "FDA approved", "FDA news", "FDA alert"
+            * Complete Response Letters (CRL): why a drug was not approved, deficiencies, NDA/BLA rejection history
+            * Any question mentioning "complete response letter", "CRL", "not approved", "rejection letter", "drug deficiency"
 - detail  : User is asking about a SPECIFIC clinical trial. Route here when:
               * The message contains an NCT ID (e.g., NCT02586025), OR
               * The user uses phrases like "this study", "the study", "this trial", "the trial", "it", "this one"

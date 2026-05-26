@@ -1,0 +1,468 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FDA API Schema",
+  "description": "Schema for all FDA-related APIs used by the ClinInfo FDA (drugs) agent",
+  "apis": {
+
+    "fda_press_announcements_rss": {
+      "title": "FDA Press Announcements RSS Feeds",
+      "description": "Official FDA RSS feeds for press announcements and drug news. No query parameters — full feed is fetched and filtered client-side.",
+      "feeds": {
+        "press": {
+          "url": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml",
+          "description": "FDA Press Announcements — drug approvals, safety alerts, policy decisions"
+        },
+        "drugs": {
+          "url": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/drugs/rss.xml",
+          "description": "What's New: Drugs — guidance documents, generic approvals, warning letters"
+        }
+      },
+      "method": "GET",
+      "authentication": {
+        "required": false,
+        "note": "A browser-like User-Agent header is required to bypass FDA CDN protection"
+      },
+      "requiredHeaders": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+      },
+      "responseFormat": "RSS 2.0 XML",
+      "responseSchema": {
+        "item": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "xmlTag": "<title>",
+              "type": "string",
+              "description": "Headline of the announcement"
+            },
+            "link": {
+              "xmlTag": "<link>",
+              "type": "string",
+              "format": "uri",
+              "description": "Full URL to the announcement on fda.gov"
+            },
+            "description": {
+              "xmlTag": "<description>",
+              "type": "string",
+              "description": "1–2 sentence summary of the announcement"
+            },
+            "pubDate": {
+              "xmlTag": "<pubDate>",
+              "type": "string",
+              "format": "RFC 2822",
+              "description": "Publication date/time, e.g. 'Fri, 22 May 2026 13:16:56 EDT'"
+            },
+            "dc:creator": {
+              "xmlTag": "<dc:creator>",
+              "type": "string",
+              "description": "Always 'FDA'",
+              "const": "FDA"
+            },
+            "guid": {
+              "xmlTag": "<guid>",
+              "type": "string",
+              "description": "Unique identifier — same value as <link>"
+            }
+          },
+          "required": ["title", "link", "pubDate"]
+        }
+      },
+      "clientSideFilters": {
+        "keywords": {
+          "type": "string",
+          "description": "Space-separated words — all must appear in title or description (AND logic)"
+        },
+        "start_date": {
+          "type": "string",
+          "format": "YYYY-MM-DD",
+          "description": "Only include items with pubDate >= start_date"
+        },
+        "end_date": {
+          "type": "string",
+          "format": "YYYY-MM-DD",
+          "description": "Only include items with pubDate <= end_date"
+        }
+      },
+      "notes": [
+        "Feeds are sorted newest-first",
+        "No native query parameters — all filtering is client-side",
+        "Parse pubDate with email.utils.parsedate_to_datetime",
+        "Typical feed size: 10–30 items"
+      ]
+    },
+
+    "openfda_drug_label": {
+      "title": "openFDA Drug Label API",
+      "description": "FDA drug label database — brand names, generic names, warnings, indications, dosage, and other label sections.",
+      "baseUrl": "https://api.fda.gov/drug/label.json",
+      "method": "GET",
+      "authentication": {
+        "required": false,
+        "apiKeyParam": "api_key",
+        "note": "Optional API key increases rate limits"
+      },
+      "queryParameters": {
+        "search": {
+          "type": "string",
+          "description": "Lucene-style query: field:\"value\" with AND/OR operators",
+          "examples": [
+            "openfda.brand_name:\"Advil\"",
+            "openfda.generic_name:\"ibuprofen\"",
+            "openfda.brand_name:\"Humira\" AND openfda.product_type:\"HUMAN PRESCRIPTION DRUG\""
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10,
+          "description": "Number of results to return"
+        },
+        "skip": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 25000,
+          "default": 0,
+          "description": "Number of results to skip for pagination"
+        },
+        "api_key": {
+          "type": "string",
+          "description": "Optional API key for higher rate limits"
+        }
+      },
+      "searchableFields": {
+        "openfda.brand_name": {
+          "type": "string",
+          "description": "Commercial/brand name of the drug"
+        },
+        "openfda.generic_name": {
+          "type": "string",
+          "description": "Generic (non-proprietary) drug name"
+        },
+        "openfda.product_type": {
+          "type": "string",
+          "enum": [
+            "HUMAN PRESCRIPTION DRUG",
+            "HUMAN OTC DRUG",
+            "VETERINARY DRUG",
+            "PLASMA DERIVATIVE",
+            "NON-STANDARDIZED ALLERGENIC"
+          ],
+          "description": "Type of drug product"
+        },
+        "openfda.route": {
+          "type": "string",
+          "description": "Administration route (e.g. ORAL, INTRAVENOUS, TOPICAL)"
+        },
+        "openfda.manufacturer_name": {
+          "type": "string",
+          "description": "Manufacturer name"
+        },
+        "openfda.application_number": {
+          "type": "string",
+          "description": "NDA/BLA/ANDA application number"
+        }
+      },
+      "responseSchema": {
+        "meta": {
+          "type": "object",
+          "properties": {
+            "disclaimer": { "type": "string" },
+            "terms": { "type": "string" },
+            "license": { "type": "string" },
+            "last_updated": { "type": "string", "format": "YYYY-MM-DD" },
+            "results": {
+              "type": "object",
+              "properties": {
+                "skip": { "type": "integer" },
+                "limit": { "type": "integer" },
+                "total": { "type": "integer" }
+              }
+            }
+          }
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "openfda": {
+                "type": "object",
+                "properties": {
+                  "brand_name": { "type": "array", "items": { "type": "string" } },
+                  "generic_name": { "type": "array", "items": { "type": "string" } },
+                  "product_type": { "type": "array", "items": { "type": "string" } },
+                  "route": { "type": "array", "items": { "type": "string" } },
+                  "manufacturer_name": { "type": "array", "items": { "type": "string" } },
+                  "application_number": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "purpose": { "type": "array", "items": { "type": "string" }, "description": "Drug purpose (OTC)" },
+              "indications_and_usage": { "type": "array", "items": { "type": "string" } },
+              "warnings": { "type": "array", "items": { "type": "string" } },
+              "boxed_warning": { "type": "array", "items": { "type": "string" }, "description": "Black box warning — most serious FDA safety warning" },
+              "dosage_and_administration": { "type": "array", "items": { "type": "string" } },
+              "active_ingredient": { "type": "array", "items": { "type": "string" } },
+              "adverse_reactions": { "type": "array", "items": { "type": "string" } },
+              "drug_interactions": { "type": "array", "items": { "type": "string" } },
+              "contraindications": { "type": "array", "items": { "type": "string" } },
+              "storage_and_handling": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      },
+      "rateLimits": {
+        "withoutKey": "240 requests/minute",
+        "withKey": "240 requests/minute per key"
+      },
+      "notes": [
+        "All label fields are arrays — access with [0] for the first value",
+        "Fields may be absent if not present on the label",
+        "boxed_warning is the most severe safety flag",
+        "Use skip+limit for pagination"
+      ]
+    },
+
+    "openfda_complete_response_letters": {
+      "title": "openFDA Complete Response Letters (CRL) API",
+      "description": "FDA transparency dataset of Complete Response Letters issued when a drug application (NDA/BLA) cannot be approved in its current form.",
+      "baseUrl": "https://api.fda.gov/transparency/crl.json",
+      "method": "GET",
+      "authentication": {
+        "required": false
+      },
+      "datasetOverview": {
+        "totalRecords": 439,
+        "yearRange": "2002–2026",
+        "updateFrequency": "Infrequent",
+        "approvalStatusDistribution": {
+          "Approved": 309,
+          "Unapproved": 130
+        }
+      },
+      "queryParameters": {
+        "search": {
+          "type": "string",
+          "description": "Lucene-style query: field:\"value\", join multiple with +AND+",
+          "examples": [
+            "company_name:\"Pfizer\"",
+            "approval_status:\"Unapproved\"",
+            "letter_year:\"2024\"",
+            "text:\"manufacturing\"",
+            "company_name:\"Roche\"+AND+letter_year:\"2023\""
+          ]
+        },
+        "sort": {
+          "type": "string",
+          "format": "field:asc or field:desc",
+          "example": "sort=letter_date:desc",
+          "description": "Sort results by a field"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 1,
+          "description": "Number of records to return"
+        },
+        "skip": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Number of records to skip for pagination"
+        },
+        "count": {
+          "type": "string",
+          "description": "Aggregate/count distinct values of a field",
+          "examples": ["count=letter_year", "count=approval_status"]
+        }
+      },
+      "searchableFields": {
+        "company_name": {
+          "type": "string",
+          "description": "Pharmaceutical company name",
+          "example": "Pfizer Inc."
+        },
+        "application_number": {
+          "type": "string",
+          "description": "NDA or BLA application number — stored without space, e.g. NDA208647",
+          "example": "NDA208647"
+        },
+        "approval_status": {
+          "type": "string",
+          "enum": ["Approved", "Unapproved"],
+          "description": "Final outcome of the application"
+        },
+        "letter_year": {
+          "type": "string",
+          "description": "Year the CRL was issued (YYYY)",
+          "example": "2024"
+        },
+        "letter_type": {
+          "type": "string",
+          "description": "Type of letter",
+          "example": "COMPLETE RESPONSE"
+        },
+        "text": {
+          "type": "string",
+          "description": "Full body text of the CRL — search for deficiency topics",
+          "examples": ["manufacturing", "clinical trial", "safety data", "labeling"]
+        }
+      },
+      "responseSchema": {
+        "meta": {
+          "type": "object",
+          "properties": {
+            "disclaimer": { "type": "string" },
+            "terms": { "type": "string" },
+            "license": { "type": "string" },
+            "last_updated": { "type": "string" },
+            "results": {
+              "type": "object",
+              "properties": {
+                "skip": { "type": "integer" },
+                "limit": { "type": "integer" },
+                "total": { "type": "integer" }
+              }
+            }
+          }
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "application_number": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "NDA or BLA number(s), stored with space e.g. 'NDA 208647'"
+              },
+              "company_name": {
+                "type": "string",
+                "description": "Pharmaceutical company name"
+              },
+              "company_rep": {
+                "type": "string",
+                "description": "Company representative name and title"
+              },
+              "company_address": {
+                "type": "string",
+                "description": "Company mailing address"
+              },
+              "letter_date": {
+                "type": "string",
+                "format": "MM/DD/YYYY",
+                "description": "Date the CRL was issued"
+              },
+              "letter_year": {
+                "type": "string",
+                "description": "Year extracted from letter_date"
+              },
+              "letter_type": {
+                "type": "string",
+                "description": "Type of FDA letter",
+                "example": "COMPLETE RESPONSE"
+              },
+              "approval_status": {
+                "type": "string",
+                "enum": ["Approved", "Unapproved"],
+                "description": "Final outcome of the drug application"
+              },
+              "approver_name": {
+                "type": "string",
+                "description": "Full name of the FDA reviewer/approver"
+              },
+              "approver_title": {
+                "type": "string",
+                "description": "Job title of the FDA approver"
+              },
+              "approver_center": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "FDA hierarchy from most specific (division) to least (center)",
+                "example": ["Division of Oncology 1", "Office of Oncologic Products", "Center for Drug Evaluation and Research"]
+              },
+              "file_name": {
+                "type": "string",
+                "description": "Source PDF filename"
+              },
+              "text": {
+                "type": "string",
+                "description": "Full OCR-extracted text of the letter — may contain formatting artifacts"
+              }
+            },
+            "required": ["application_number", "company_name", "letter_date", "approval_status"]
+          }
+        }
+      },
+      "exampleQueries": [
+        {
+          "description": "All CRLs newest first",
+          "url": "https://api.fda.gov/transparency/crl.json?limit=5&sort=letter_date:desc"
+        },
+        {
+          "description": "CRLs from Pfizer",
+          "url": "https://api.fda.gov/transparency/crl.json?search=company_name:\"Pfizer\"&limit=10"
+        },
+        {
+          "description": "Unapproved applications only",
+          "url": "https://api.fda.gov/transparency/crl.json?search=approval_status:\"Unapproved\"&limit=10"
+        },
+        {
+          "description": "CRLs in 2024",
+          "url": "https://api.fda.gov/transparency/crl.json?search=letter_year:\"2024\"&sort=letter_date:desc&limit=10"
+        },
+        {
+          "description": "CRLs mentioning manufacturing deficiencies",
+          "url": "https://api.fda.gov/transparency/crl.json?search=text:\"manufacturing\"&limit=10"
+        },
+        {
+          "description": "Specific NDA",
+          "url": "https://api.fda.gov/transparency/crl.json?search=application_number:\"NDA208647\""
+        },
+        {
+          "description": "Count CRLs by year",
+          "url": "https://api.fda.gov/transparency/crl.json?count=letter_year"
+        },
+        {
+          "description": "Count by approval status",
+          "url": "https://api.fda.gov/transparency/crl.json?count=approval_status"
+        }
+      ],
+      "notes": [
+        "letter_date is MM/DD/YYYY — use letter_year for year-based API filtering",
+        "application_number in search must omit the space: NDA208647 not NDA 208647",
+        "application_number in response includes a space: 'NDA 208647'",
+        "text field is OCR-extracted and may contain formatting artifacts",
+        "approver_center array is ordered most-specific to least-specific",
+        "API max is 100 records per request — use skip for pagination"
+      ]
+    }
+  },
+
+  "errorResponses": {
+    "200": "OK — successful request",
+    "400": "Bad Request — invalid query syntax or parameters",
+    "404": {
+      "status": "Not Found — no results match query",
+      "body": {
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "No matches found!"
+        }
+      }
+    },
+    "429": "Too Many Requests — rate limit exceeded",
+    "500": "Internal Server Error"
+  },
+
+  "references": {
+    "openFDA_homepage": "https://open.fda.gov/apis/",
+    "drugLabel_docs": "https://open.fda.gov/apis/drug/label/",
+    "crl_docs": "https://open.fda.gov/apis/transparency/completeresponseletters/",
+    "crl_searchableFields": "https://open.fda.gov/apis/transparency/completeresponseletters/searchable-fields/",
+    "fda_pressAnnouncements": "https://www.fda.gov/news-events/fda-newsroom/press-announcements",
+    "fda_rssFeeds": "https://www.fda.gov/about-fda/contact-fda/subscribe-podcasts-and-news-feeds",
+    "openFDA_rateLimits": "https://open.fda.gov/apis/authentication/"
+  }
+}
