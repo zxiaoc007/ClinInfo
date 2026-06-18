@@ -1,6 +1,6 @@
 # FDA API Schema
 
-This document covers all three APIs used by the FDA (drugs) agent in ClinInfo:
+This document covers all three APIs used by the FDA (drugs) agent in CliniFact:
 
 1. [FDA Press Announcements RSS Feeds](#1-fda-press-announcements-rss-feeds)
 2. [openFDA Drug Label API](#2-openfda-drug-label-api)

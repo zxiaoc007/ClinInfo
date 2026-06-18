@@ -1,4 +1,4 @@
-# ClinInfo — Medical Research Assistant
+# CliniFact — Medical Research Assistant
 
 A web-based AI chatbot that helps users search clinical trials and explore FDA drug information through natural language queries.
 
